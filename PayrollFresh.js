@@ -5,70 +5,109 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-function ask(question) {
-    return new Promise(resolve => rl.question(question, resolve));
-}
+const FICA_RATE = 0.0765;
+const OVERTIME_THRESHOLD = 40;
 
-async function runPayrollMVP() {
-    console.log("\n====================================");
-    console.log(" PayrollFresh - U.S. Payroll MVP");
-    console.log("====================================\n");
+function calculatePayroll(employee) {
+    let regularPay = 0;
+    let overtimePay = 0;
 
-    let continueRunning = true;
-
-    while (continueRunning) {
-        const employeeName = await ask("Employee name: ");
-
-        const hourlyRate = Number(await ask("Hourly rate ($): "));
-        if (isNaN(hourlyRate) || hourlyRate <= 0) {
-            console.log("Invalid hourly rate.\n");
-            continue;
+    if (employee.type === "hourly") {
+        if (employee.hoursWorked > OVERTIME_THRESHOLD) {
+            regularPay = OVERTIME_THRESHOLD * employee.rate;
+            overtimePay = (employee.hoursWorked - OVERTIME_THRESHOLD) * employee.rate * 1.5;
+        } else {
+            regularPay = employee.hoursWorked * employee.rate;
         }
-
-        const hoursWorked = Number(await ask("Hours worked this week: "));
-        if (isNaN(hoursWorked) || hoursWorked < 0) {
-            console.log("Invalid hours worked.\n");
-            continue;
-        }
-
-        const regularHours = Math.min(hoursWorked, 40);
-        const overtimeHours = Math.max(hoursWorked - 40, 0);
-
-        const regularPay = regularHours * hourlyRate;
-        const overtimePay = overtimeHours * hourlyRate * 1.5;
-        const grossPay = regularPay + overtimePay;
-
-        const FICA_RATE = 0.0765;
-
-        const employeeFICA = grossPay * FICA_RATE;
-        const employerFICA = grossPay * FICA_RATE;
-
-        const netPay = grossPay - employeeFICA;
-        const totalEmployerCost = grossPay + employerFICA;
-
-        console.log("\n----------- Payroll Summary -----------");
-        console.log(`Employee            : ${employeeName}`);
-        console.log(`Regular Pay         : $${regularPay.toFixed(2)}`);
-        console.log(`Overtime Pay        : $${overtimePay.toFixed(2)}`);
-        console.log(`Gross Pay           : $${grossPay.toFixed(2)}`);
-        console.log(`Employee FICA (7.65%): -$${employeeFICA.toFixed(2)}`);
-        console.log("-------------------------------------");
-        console.log(`Net Pay             : $${netPay.toFixed(2)}\n`);
-
-        console.log("Employer Payroll Cost:");
-        console.log(`Employer FICA (7.65%): $${employerFICA.toFixed(2)}`);
-        console.log(`Total Employer Cost : $${totalEmployerCost.toFixed(2)}`);
-        console.log("-------------------------------------\n");
-
-        const answer = await ask("Add another employee? (y/n): ");
-        continueRunning = answer.trim().toLowerCase() === "y";
-
-        console.log();
+    } else if (employee.type === "monthly") {
+        regularPay = employee.rate;
+        overtimePay = 0;
     }
 
-    console.log("Payroll processing completed.");
+    const grossPay = regularPay + overtimePay;
+    const employeeFICA = grossPay * FICA_RATE;
+    const employerFICA = grossPay * FICA_RATE;
+    const netPay = grossPay - employeeFICA;
+    const totalEmployerCost = grossPay + employerFICA;
+
+    return {
+        regularPay,
+        overtimePay,
+        grossPay,
+        employeeFICA,
+        netPay,
+        employerFICA,
+        totalEmployerCost
+    };
+}
+
+async function ask(question) {
+    return new Promise(resolve => rl.question(question, answer => resolve(answer)));
+}
+
+async function runPayroll() {
+    console.log("\n====================================");
+    console.log(" PayrollFresh - U.S. Payroll MVP ");
+    console.log("====================================\n");
+
+    const employees = [];
+
+    let addMore = true;
+    while (addMore) {
+        const name = await ask("Employee name: ");
+        let type;
+        while (true) {
+            type = (await ask("Pay type (hourly/monthly): ")).trim().toLowerCase();
+            if (type === "hourly" || type === "monthly") break;
+            console.log("Invalid input. Please enter 'hourly' or 'monthly'.");
+        }
+
+        let rate;
+        let hoursWorked = 0;
+
+        if (type === "hourly") {
+            while (true) {
+                rate = parseFloat(await ask("Hourly rate ($): "));
+                if (!isNaN(rate) && rate >= 0) break;
+                console.log("Invalid rate. Enter a positive number.");
+            }
+            while (true) {
+                hoursWorked = parseFloat(await ask("Hours worked this week: "));
+                if (!isNaN(hoursWorked) && hoursWorked >= 0) break;
+                console.log("Invalid hours. Enter a positive number, decimals allowed (e.g., 4.5).");
+            }
+        } else {
+            while (true) {
+                rate = parseFloat(await ask("Monthly salary ($): "));
+                if (!isNaN(rate) && rate >= 0) break;
+                console.log("Invalid salary. Enter a positive number.");
+            }
+        }
+
+        const employee = { name, type, rate, hoursWorked };
+        const result = calculatePayroll(employee);
+        employees.push({ ...employee, ...result });
+
+        console.log("\n----------- Payroll Summary -----------");
+        console.log(`Employee            : ${name}`);
+        console.log(`Regular Pay         : $${result.regularPay.toFixed(2)}`);
+        if (type === "hourly") console.log(`Overtime Pay        : $${result.overtimePay.toFixed(2)}`);
+        console.log(`Gross Pay           : $${result.grossPay.toFixed(2)}`);
+        console.log(`Employee FICA (7.65%): -$${result.employeeFICA.toFixed(2)}`);
+        console.log("-------------------------------------");
+        console.log(`Net Pay             : $${result.netPay.toFixed(2)}\n`);
+        console.log("Employer Payroll Cost:");
+        console.log(`Employer FICA (7.65%): $${result.employerFICA.toFixed(2)}`);
+        console.log(`Total Employer Cost  : $${result.totalEmployerCost.toFixed(2)}`);
+        console.log("-------------------------------------\n");
+
+        let more = await ask("Add another employee? (y/n): ");
+        addMore = more.trim().toLowerCase() === "y";
+    }
+
+    console.log("\nPayroll processing completed for all employees.");
     rl.close();
 }
 
-runPayrollMVP();
+runPayroll();
 
